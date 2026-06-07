@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>foqus</title>
+    <!-- Apply the saved theme before first paint to avoid a flash. -->
+    <script>
+      try {
+        var t = localStorage.getItem("foqus.theme");
+        if (t) document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    </script>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <div id="app" class="app is-immersed">
+      <!-- Frameless title bar: draggable, auto-hiding, holds quick actions. -->
+      <div class="titlebar" data-tauri-drag-region>
+        <div class="titlebar-doc" data-tauri-drag-region>
+          <span id="doc-name" class="doc-name">Untitled</span>
+          <span id="doc-dot" class="doc-dot" title="Unsaved changes"></span>
+        </div>
+        <div class="titlebar-actions">
+          <button class="icon-btn" id="btn-focus" title="Focus mode  ⌘⇧F" aria-label="Focus mode">
+            <svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none" /></svg>
+          </button>
+          <button class="icon-btn" id="btn-typewriter" title="Typewriter scrolling  ⌘⇧T" aria-label="Typewriter">
+            <svg viewBox="0 0 24 24" class="ic"><path d="M5 8h14M5 12h14M8 16h8" /></svg>
+          </button>
+          <button class="icon-btn" id="btn-theme" title="Cycle theme  ⌘⇧L" aria-label="Theme">
+            <svg viewBox="0 0 24 24" class="ic"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z" /></svg>
+          </button>
+          <button class="icon-btn" id="btn-cmd" title="Commands  ⌘K" aria-label="Commands">
+            <svg viewBox="0 0 24 24" class="ic"><path d="M9 6H7a2 2 0 0 0 0 4h10a2 2 0 0 1 0 4h-2M9 6v12M15 6v12" /></svg>
+          </button>
+          <button class="icon-btn" id="btn-settings" title="Settings  ⌘," aria-label="Settings">
+            <svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="3.2" /><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" /></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- The page. -->
+      <main class="surface">
+        <div id="editor" class="editor-host"></div>
+      </main>
+
+      <!-- Status bar: quiet, auto-hiding, right-aligned momentum. -->
+      <footer class="statusbar">
+        <div class="status-left">
+          <span id="status-path" class="status-path">Not yet saved</span>
+        </div>
+        <div class="status-right">
+          <span id="streak" class="streak" title="Writing streak" hidden>
+            <svg viewBox="0 0 24 24" class="ic-flame"><path d="M12 3c1 3-2 4-2 7a3 3 0 0 0 6 0c0-1-.5-2-1-2.5C16 10 17 12 17 14a5 5 0 0 1-10 0c0-4 4-6 5-11z"/></svg>
+            <span id="streak-n">0</span>
+          </span>
+          <span id="wordcount" class="wordcount">0 words</span>
+          <div id="ring-mount" class="ring-mount"></div>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>
