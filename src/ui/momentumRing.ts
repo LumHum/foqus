@@ -71,4 +71,12 @@ export class MomentumRing {
     this.el.classList.toggle("is-complete", this.complete);
     this.el.title = `${words} of ${goal} words today`;
   }
+
+  /** A single celebratory spin — the peak moment when the goal is reached. */
+  celebrate(): void {
+    this.el.classList.remove("is-spin");
+    void this.el.offsetWidth; // restart the animation
+    this.el.classList.add("is-spin");
+    window.setTimeout(() => this.el.classList.remove("is-spin"), 720);
+  }
 }

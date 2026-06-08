@@ -51,12 +51,15 @@ export async function saveToPath(path: string, content: string): Promise<void> {
   await invoke("save_document", { path, content });
 }
 
-/** Show the save panel and write there. Returns the doc with its new path/name. */
-export async function saveAs(content: string, suggestedName: string): Promise<Doc | null> {
+/** Show the save panel and write there. Returns the doc with its new path/name.
+ *  `defaultDir` (e.g. the notebook folder) pre-points the picker. */
+export async function saveAs(content: string, suggestedName: string, defaultDir?: string): Promise<Doc | null> {
   if (!isTauri()) return browserSave(content, suggestedName);
   const name = suggestedName.replace(/[\\/:*?"<>|]/g, "").trim() || "Untitled";
+  const file = name.endsWith(".md") ? name : `${name}.md`;
+  const sep = defaultDir && defaultDir.includes("\\") && !defaultDir.includes("/") ? "\\" : "/";
   const path = await saveDialog({
-    defaultPath: name.endsWith(".md") ? name : `${name}.md`,
+    defaultPath: defaultDir ? `${defaultDir}${sep}${file}` : file,
     filters: MD_FILTERS,
   });
   if (!path) return null;

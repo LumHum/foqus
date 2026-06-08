@@ -24,7 +24,16 @@ export interface Settings {
   soundVolume: number; // 0..1
   dailyGoal: number; // words/day target for the momentum ring
   hideSyntax: boolean; // dim/hide markdown punctuation when not editing it
+  autosave: boolean; // save continuously, or only on explicit save / close
   lastPath: string | null;
+  // foqus notebook (a vault folder where .md files live)
+  notebookEnabled: boolean;
+  notebookPath: string | null;
+  sidebarOpen: boolean;
+  // version control — keep recoverable snapshots on save
+  versionControl: boolean;
+  // first-run onboarding seen?
+  onboarded: boolean;
   // streak tracking
   streak: number;
   longestStreak: number;
@@ -47,7 +56,13 @@ export const DEFAULTS: Settings = {
   soundVolume: 0.35,
   dailyGoal: 500,
   hideSyntax: true,
+  autosave: true,
   lastPath: null,
+  notebookEnabled: false,
+  notebookPath: null,
+  sidebarOpen: true,
+  versionControl: true,
+  onboarded: false,
   streak: 0,
   longestStreak: 0,
   lastWriteDay: null,

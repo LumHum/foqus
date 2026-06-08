@@ -1,30 +1,36 @@
 // foqus writer — app wiring.
 //
-// Boots settings, builds the editor, and connects everything. The saving model
-// is the heart of this file:
-//   • Write instantly into a new untitled doc — no upfront dialog (protect flow).
-//   • Autosave continuously: titled docs → their file; untitled docs → a crash-
-//     safe draft file (never lose work).
-//   • Choose a location only at a boundary — closing the window or opening another
-//     file — via the tactile "Save your work?" prompt.
-//   • File ▸ New (⌘N) opens a new window; two files can be open in two windows.
+// Connects everything around the saving model:
+//   • Write instantly; autosave continuously (toggle-able) — titled docs → their
+//     file, untitled docs → a crash-safe draft. With the notebook on, new docs
+//     become files in the notebook folder automatically.
+//   • Choose a location only at a boundary (close / open / quit) when there's no
+//     home yet — via the "Save your work?" dialog.
+//   • Every save records a recoverable version (Version History, ⌘⇧H).
+//   • File ▸ New (⌘N) opens a new window; two files can be open at once.
 
 import "./styles.css";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { createEditor, type EditorAPI } from "./editor";
 import * as settings from "./lib/settings";
-import type { FontName, Settings, ThemeName } from "./lib/settings";
-import type { FocusMode } from "./lib/settings";
+import type { FocusMode, FontName, Settings, ThemeName } from "./lib/settings";
 import * as files from "./lib/files";
 import type { Doc } from "./lib/files";
+import * as nb from "./lib/notebook";
+import { saveVersion } from "./lib/versions";
 import { isTauri } from "./lib/env";
+import { osPlatform, windowControls } from "./lib/platform";
 import * as sound from "./lib/sound";
 import { CommandPalette, type Command } from "./ui/commandPalette";
 import { SettingsPanel } from "./ui/settingsPanel";
+import { Sidebar } from "./ui/sidebar";
 import { MomentumRing } from "./ui/momentumRing";
+import { HistoryPanel } from "./ui/historyPanel";
 import { celebrate } from "./ui/celebrate";
 import { confirmSave } from "./ui/confirmDialog";
+import { runOnboarding } from "./ui/onboarding";
 
 const WELCOME = `# Welcome to foqus
 
@@ -34,10 +40,10 @@ words autosave the instant you write them, safely, as a plain Markdown file.
 ## A few things to try
 
 - Press **⌘N** for a new page in its own window — keep two pieces open at once.
-- Press **⌘K** for everything foqus can do.
+- Press **⌘K** for everything foqus can do, or **⌘⇧H** for version history.
 - Hit **⌘⇧F** to cycle **Focus mode**; **⌘⇧T** for typewriter scrolling.
-- You'll only be asked *where* to keep a piece when you close its window or open
-  another file. Until then, write freely.
+- Turn on the **foqus notebook** in Settings (**⌘,**) to keep all your writing in
+  one tidy folder.
 
 > Your words live as a plain \`.md\` file you own. foqus never locks them away.
 
@@ -48,7 +54,6 @@ function wordCount(text: string): number {
   const t = text.trim();
   return t ? t.split(/\s+/).length : 0;
 }
-
 function deriveName(text: string): string {
   const first = text.split("\n").find((l) => l.trim());
   if (!first) return "Untitled";
@@ -71,6 +76,17 @@ async function boot() {
   const streakEl = document.getElementById("streak")!;
   const streakNEl = document.getElementById("streak-n")!;
   const ringMount = document.getElementById("ring-mount")!;
+
+  // ── platform chrome ──
+  const os = await osPlatform();
+  app.setAttribute("data-os", os);
+  if (os === "windows" || os === "linux") {
+    const wc = document.getElementById("win-controls")!;
+    wc.hidden = false;
+    document.getElementById("win-min")!.addEventListener("click", () => void windowControls.minimize());
+    document.getElementById("win-max")!.addEventListener("click", () => void windowControls.toggleMaximize());
+    document.getElementById("win-close")!.addEventListener("click", () => void windowControls.close());
+  }
 
   // ── state ──
   let doc: Doc = files.newDoc();
@@ -96,8 +112,34 @@ async function boot() {
     onChange: (text) => onDocChange(text),
   });
 
-  const panel = new SettingsPanel({ get: settings.get, onChange: (p) => applyPatch(p) });
+  const sidebar = new Sidebar({
+    getNotebookPath: () => (settings.get().notebookEnabled ? settings.get().notebookPath : null),
+    getActivePath: () => doc.path,
+    onOpenFile: (p) => void openPath(p),
+    onRenamed: (_old, np) => {
+      doc = { ...doc, path: np, name: nb.baseName(np) };
+      settings.set("lastPath", np);
+      refreshTitle();
+      refreshStatus();
+    },
+    onTrashed: (p) => {
+      if (doc.path === p) setDoc(files.newDoc(), "");
+    },
+  });
+  document.getElementById("sidebar-slot")!.appendChild(sidebar.el);
+
+  const panel = new SettingsPanel({
+    get: settings.get,
+    onChange: (p) => applyPatch(p),
+    onPickNotebook: () => void pickNotebook(),
+    onMakeDefaultEditor: () => void makeDefaultEditor(),
+  });
   const palette = new CommandPalette(() => buildCommands());
+  const history = new HistoryPanel({
+    getActivePath: () => doc.path ?? doc.draftPath,
+    getCurrentContent: () => editor.getText(),
+    onRestore: (content) => void restoreVersion(content),
+  });
 
   // ── theme / typography ──
   function applyTheme(name: ThemeName) {
@@ -157,6 +199,7 @@ async function boot() {
     wordcountEl.textContent = `${lastWordCount} word${lastWordCount === 1 ? "" : "s"}`;
     refreshTitle();
     refreshStatus();
+    sidebar.setActive();
   }
 
   function onDocChange(text: string) {
@@ -169,7 +212,6 @@ async function boot() {
     markDirty();
     refreshTitle();
     immerse();
-
     if (added > 0) {
       const total = settings.addWordsToday(added);
       ring.set(total, settings.get().dailyGoal);
@@ -178,18 +220,44 @@ async function boot() {
     scheduleAutosave();
   }
 
-  // ── autosave (continuous; untitled → draft, titled → file) ──
+  // ── saving ──
+  function snapshot(path: string | null, text: string) {
+    if (path && settings.get().versionControl) void saveVersion(path, text);
+  }
+  function defaultDir(): string | undefined {
+    const cur = settings.get();
+    return cur.notebookEnabled && cur.notebookPath ? cur.notebookPath : undefined;
+  }
+  /** Turn an untitled doc into a real file inside the notebook (named from its
+   *  first line). Used when the notebook is on — no "where?" prompt needed. */
+  async function homeInNotebook(text: string): Promise<boolean> {
+    const dir = settings.get().notebookPath;
+    if (!dir) return false;
+    const p = await nb.createNote(dir, deriveName(text) || "Untitled");
+    if (!p) return false;
+    await files.saveToPath(p, text);
+    await files.discardDraft(doc.draftPath);
+    doc = { path: p, draftPath: null, name: nb.baseName(p), content: text };
+    settings.set("lastPath", p);
+    snapshot(p, text);
+    refreshTitle();
+    markClean();
+    void sidebar.refresh();
+    return true;
+  }
+
   function scheduleAutosave() {
     clearTimeout(autosaveTimer);
-    if (pristine) return;
+    if (pristine || !settings.get().autosave) return;
     autosaveTimer = window.setTimeout(() => void flush(), 500);
   }
   async function flush() {
-    if (pristine) return;
+    if (pristine || !settings.get().autosave) return;
     const text = editor.getText();
     doc.content = text;
     if (doc.path) {
       await files.saveToPath(doc.path, text);
+      snapshot(doc.path, text);
       markClean();
       return;
     }
@@ -197,46 +265,55 @@ async function boot() {
       markClean();
       return;
     }
+    if (settings.get().notebookEnabled && settings.get().notebookPath) {
+      await homeInNotebook(text);
+      return;
+    }
     if (!doc.draftPath) doc.draftPath = await files.newDraftPath();
-    if (doc.draftPath) await files.saveToPath(doc.draftPath, text);
+    if (doc.draftPath) {
+      await files.saveToPath(doc.draftPath, text);
+      snapshot(doc.draftPath, text);
+    }
     markClean();
   }
 
-  // ── finalize: called when closing / opening another file ──
-  // Returns "ok" to proceed, "cancel" to abort (stay).
+  // finalize at a boundary (close / open). Returns "ok" or "cancel".
   async function finalize(): Promise<"ok" | "cancel"> {
     clearTimeout(autosaveTimer);
     const text = editor.getText();
     doc.content = text;
-
-    if (pristine) return "ok"; // unedited welcome — nothing to keep
+    if (pristine) return "ok";
     if (doc.path) {
       await files.saveToPath(doc.path, text);
+      snapshot(doc.path, text);
       return "ok";
     }
     if (!text.trim()) {
       await files.discardDraft(doc.draftPath);
       return "ok";
     }
-
+    if (settings.get().notebookEnabled && settings.get().notebookPath) {
+      await homeInNotebook(text);
+      return "ok";
+    }
     const choice = await confirmSave(deriveName(text));
     if (choice === "cancel") return "cancel";
     if (choice === "discard") {
       await files.discardDraft(doc.draftPath);
       return "ok";
     }
-    // save → native location picker
-    const saved = await files.saveAs(text, deriveName(text));
-    if (!saved) return "cancel"; // user cancelled the picker → don't close
+    const saved = await files.saveAs(text, deriveName(text), defaultDir());
+    if (!saved) return "cancel";
     await files.discardDraft(doc.draftPath);
     doc = saved;
     settings.set("lastPath", saved.path!);
+    snapshot(saved.path!, text);
     refreshTitle();
     markClean();
+    void sidebar.refresh();
     return "ok";
   }
 
-  // ── explicit Save / Save As (⌘S / ⌘⇧S, also from menu) ──
   async function saveExplicit() {
     clearTimeout(autosaveTimer);
     pristine = false;
@@ -244,35 +321,44 @@ async function boot() {
     doc.content = text;
     if (doc.path) {
       await files.saveToPath(doc.path, text);
+      snapshot(doc.path, text);
       markClean();
       flashStatus("Saved");
       return;
     }
     if (!text.trim()) return;
-    const saved = await files.saveAs(text, deriveName(text));
+    if (settings.get().notebookEnabled && settings.get().notebookPath) {
+      await homeInNotebook(text);
+      flashStatus("Saved");
+      return;
+    }
+    const saved = await files.saveAs(text, deriveName(text), defaultDir());
     if (!saved) return;
     await files.discardDraft(doc.draftPath);
     doc = saved;
     settings.set("lastPath", saved.path!);
+    snapshot(saved.path!, text);
     refreshTitle();
     markClean();
     flashStatus("Saved");
+    void sidebar.refresh();
   }
   async function saveAsExplicit() {
     pristine = false;
     const text = editor.getText();
     const wasUntitled = !doc.path;
-    const saved = await files.saveAs(text, doc.path ? doc.name : deriveName(text));
+    const saved = await files.saveAs(text, doc.path ? doc.name : deriveName(text), defaultDir());
     if (!saved) return;
     if (wasUntitled) await files.discardDraft(doc.draftPath);
     doc = saved;
     settings.set("lastPath", saved.path!);
+    snapshot(saved.path!, text);
     refreshTitle();
     markClean();
     flashStatus("Saved");
+    void sidebar.refresh();
   }
 
-  // ── open another file (⌘O / menu) — finalizes current first ──
   async function openFile() {
     if ((await finalize()) === "cancel") return;
     const opened = await files.openDocument();
@@ -281,10 +367,38 @@ async function boot() {
       if (opened.path) settings.set("lastPath", opened.path);
     }
   }
-
-  // ── new file = new window ──
+  async function openPath(path: string) {
+    if (doc.path === path) return;
+    if ((await finalize()) === "cancel") return;
+    const d = await files.readPath(path);
+    if (d) {
+      setDoc(d, d.content);
+      settings.set("lastPath", path);
+    }
+  }
   function newFile() {
     void files.newWindow();
+  }
+
+  // ── version control ──
+  async function restoreVersion(content: string) {
+    const key = doc.path ?? doc.draftPath;
+    if (key && settings.get().versionControl) await saveVersion(key, editor.getText()); // keep current recoverable
+    editor.loadDoc(content);
+    doc.content = content;
+    lastWordCount = wordCount(content);
+    wordcountEl.textContent = `${lastWordCount} word${lastWordCount === 1 ? "" : "s"}`;
+    pristine = false;
+    if (doc.path) {
+      await files.saveToPath(doc.path, content);
+      snapshot(doc.path, content);
+    } else if (doc.draftPath) {
+      await files.saveToPath(doc.draftPath, content);
+      snapshot(doc.draftPath, content);
+    }
+    markClean();
+    refreshTitle();
+    flashStatus("Restored");
   }
 
   // ── momentum / streak ──
@@ -303,6 +417,7 @@ async function boot() {
     const goal = settings.get().dailyGoal;
     if (goal <= 0 || goalCelebrated) return;
     goalCelebrated = true;
+    ring.celebrate();
     celebrate(1);
     sound.success();
     flashStatus("Daily goal reached ✶");
@@ -337,15 +452,55 @@ async function boot() {
       if (p.sound) sound.click();
     }
     if (p.soundVolume !== undefined) sound.setSoundVolume(p.soundVolume);
+    if (p.autosave === true) void flush();
     if (p.dailyGoal !== undefined) {
       goalCelebrated = settings.getWordsToday() >= p.dailyGoal && p.dailyGoal > 0;
       ring.set(settings.getWordsToday(), p.dailyGoal);
     }
+    if (p.notebookEnabled !== undefined) {
+      if (p.notebookEnabled && !settings.get().notebookPath) {
+        void pickNotebook();
+      } else {
+        updateLayout();
+        void sidebar.refresh();
+        panel.refresh();
+      }
+    }
+    if (p.sidebarOpen !== undefined) updateLayout();
   }
+
+  async function pickNotebook() {
+    const path = await nb.pickNotebookFolder();
+    if (path) {
+      settings.patch({ notebookPath: path, notebookEnabled: true, sidebarOpen: true });
+    } else if (!settings.get().notebookPath) {
+      settings.set("notebookEnabled", false);
+    }
+    updateLayout();
+    await sidebar.refresh();
+    panel.refresh();
+  }
+  async function makeDefaultEditor() {
+    try {
+      const msg = await invoke<string>("set_default_md_editor");
+      flashStatus(msg.length > 44 ? "Set as default ✓" : msg);
+    } catch (e) {
+      flashStatus(String(e).slice(0, 56));
+    }
+  }
+
   function syncButtons() {
     const cur = settings.get();
     document.getElementById("btn-focus")!.classList.toggle("is-on", cur.focusMode !== "off");
     document.getElementById("btn-typewriter")!.classList.toggle("is-on", cur.typewriter);
+  }
+  function updateLayout() {
+    const cur = settings.get();
+    const hasNotebook = cur.notebookEnabled && !!cur.notebookPath;
+    app.classList.toggle("has-sidebar", hasNotebook && cur.sidebarOpen);
+    const btn = document.getElementById("btn-sidebar")!;
+    btn.hidden = !hasNotebook;
+    btn.classList.toggle("is-on", cur.sidebarOpen);
   }
 
   let flashTimer: number | undefined;
@@ -361,12 +516,12 @@ async function boot() {
     app.classList.add("chrome-visible");
     clearTimeout(chromeTimer);
     chromeTimer = window.setTimeout(() => {
-      if (!panel.isOpen() && !palette.isOpen()) app.classList.remove("chrome-visible");
+      if (!panel.isOpen() && !palette.isOpen() && !history.isOpen()) app.classList.remove("chrome-visible");
     }, 2400);
   }
   function immerse() {
     clearTimeout(chromeTimer);
-    if (!panel.isOpen() && !palette.isOpen()) app.classList.remove("chrome-visible");
+    if (!panel.isOpen() && !palette.isOpen() && !history.isOpen()) app.classList.remove("chrome-visible");
   }
   window.addEventListener("mousemove", showChrome, { passive: true });
 
@@ -378,12 +533,16 @@ async function boot() {
       { id: "open", title: "Open…", shortcut: "⌘O", run: () => void openFile() },
       { id: "save", title: "Save", shortcut: "⌘S", run: () => void saveExplicit() },
       { id: "saveas", title: "Save As…", shortcut: "⌘⇧S", run: () => void saveAsExplicit() },
+      { id: "history", title: "Version history…", shortcut: "⌘⇧H", keywords: "versions revert diff", run: () => void history.show() },
+      { id: "notebook", title: `foqus notebook: ${cur.notebookEnabled ? "On" : "Off"}`, keywords: "vault folder", run: () => applyPatch({ notebookEnabled: !cur.notebookEnabled }) },
+      { id: "autosave", title: `Autosave: ${cur.autosave ? "On" : "Off"}`, keywords: "save", run: () => applyPatch({ autosave: !cur.autosave }) },
+      { id: "default", title: "Make foqus the default Markdown editor", keywords: "open with", run: () => void makeDefaultEditor() },
       { id: "focus-off", title: "Focus: Off", keywords: "focus mode", run: () => applyPatch({ focusMode: "off" }) },
       { id: "focus-sentence", title: "Focus: Sentence", keywords: "focus mode", run: () => applyPatch({ focusMode: "sentence" }) },
       { id: "focus-paragraph", title: "Focus: Paragraph", keywords: "focus mode", run: () => applyPatch({ focusMode: "paragraph" }) },
-      { id: "typewriter", title: `Typewriter scrolling: ${cur.typewriter ? "On" : "Off"}`, shortcut: "⌘⇧T", keywords: "center caret", run: () => applyPatch({ typewriter: !cur.typewriter }) },
-      { id: "syntax", title: `Hide Markdown syntax: ${cur.hideSyntax ? "On" : "Off"}`, keywords: "conceal markup", run: () => applyPatch({ hideSyntax: !cur.hideSyntax }) },
-      { id: "sound", title: `Typing sound: ${cur.sound ? "On" : "Off"}`, keywords: "audio feel", run: () => applyPatch({ sound: !cur.sound }) },
+      { id: "typewriter", title: `Typewriter scrolling: ${cur.typewriter ? "On" : "Off"}`, shortcut: "⌘⇧T", run: () => applyPatch({ typewriter: !cur.typewriter }) },
+      { id: "syntax", title: `Hide Markdown syntax: ${cur.hideSyntax ? "On" : "Off"}`, run: () => applyPatch({ hideSyntax: !cur.hideSyntax }) },
+      { id: "sound", title: `Typing sound: ${cur.sound ? "On" : "Off"}`, run: () => applyPatch({ sound: !cur.sound }) },
       { id: "settings", title: "Open Settings…", shortcut: "⌘,", run: () => panel.show() },
     ];
     (["paper", "night", "sepia", "ink"] as ThemeName[]).forEach((t) =>
@@ -401,8 +560,10 @@ async function boot() {
       sound.click();
       fn();
     });
+  onClick("btn-sidebar", () => applyPatch({ sidebarOpen: !settings.get().sidebarOpen }));
   onClick("btn-focus", () => cycleFocus());
   onClick("btn-typewriter", () => applyPatch({ typewriter: !settings.get().typewriter }));
+  onClick("btn-history", () => void history.show());
   onClick("btn-theme", () => cycleTheme());
   onClick("btn-cmd", () => palette.toggle());
   onClick("btn-settings", () => panel.toggle());
@@ -423,7 +584,7 @@ async function boot() {
   window.addEventListener("keydown", (e) => {
     const mod = e.metaKey || e.ctrlKey;
     if (e.key === "Escape") {
-      if (palette.isOpen()) return;
+      if (palette.isOpen() || history.isOpen()) return;
       if (panel.isOpen()) {
         panel.close();
         return;
@@ -434,6 +595,9 @@ async function boot() {
     if (k === "k") {
       e.preventDefault();
       palette.toggle();
+    } else if (k === "h" && e.shiftKey) {
+      e.preventDefault();
+      void history.show();
     } else if (k === "f" && e.shiftKey) {
       e.preventDefault();
       cycleFocus();
@@ -444,7 +608,7 @@ async function boot() {
       e.preventDefault();
       cycleTheme();
     } else if (!isTauri()) {
-      // In a plain browser there's no native menu — keep the file shortcuts working.
+      // Browser dev has no native menu — keep file shortcuts working.
       if (k === "n" && !e.shiftKey) (e.preventDefault(), newFile());
       else if (k === "o" && !e.shiftKey) (e.preventDefault(), void openFile());
       else if (k === "s" && !e.shiftKey) (e.preventDefault(), void saveExplicit());
@@ -453,7 +617,7 @@ async function boot() {
     }
   });
 
-  // ── native window + menu wiring ──
+  // ── native window + menu + file-open wiring ──
   if (isTauri()) {
     const w = getCurrentWindow();
     w.onCloseRequested(async (event) => {
@@ -464,17 +628,53 @@ async function boot() {
     listen("menu:open", () => void openFile());
     listen("menu:save", () => void saveExplicit());
     listen("menu:saveas", () => void saveAsExplicit());
+    listen("menu:history", () => void history.show());
     listen("menu:settings", () => panel.toggle());
+    listen<string>("open-file", (e) => {
+      if (e.payload) void openPath(e.payload);
+    });
   }
 
-  // ── initial document ──
+  // ── initial state ──
   ring.reset(settings.getWordsToday(), s.dailyGoal);
   renderStreak(s.streak);
   syncButtons();
+  updateLayout();
   editor.setTypewriter(s.typewriter);
+  void sidebar.refresh();
 
+  // First-run onboarding (main window only) — offers notebook, history, default.
+  if (isTauri() && !settings.get().onboarded && getCurrentWindow().label === "main") {
+    const res = await runOnboarding({
+      pickFolder: () => nb.pickNotebookFolder(),
+      setDefaultEditor: () => invoke<string>("set_default_md_editor"),
+    });
+    const patch: Partial<Settings> = { onboarded: true, versionControl: res.versionControl };
+    if (res.notebookPath) {
+      patch.notebookEnabled = true;
+      patch.notebookPath = res.notebookPath;
+      patch.sidebarOpen = true;
+    }
+    settings.patch(patch);
+    updateLayout();
+    await sidebar.refresh();
+  }
+
+  // Load the initial document.
+  let launchFile: string | null = null;
+  if (isTauri()) {
+    try {
+      launchFile = await invoke<string | null>("take_launch_file");
+    } catch {
+      /* ignore */
+    }
+  }
   const label = isTauri() ? getCurrentWindow().label : "main";
-  if (label === "main") {
+  if (launchFile) {
+    const d = await files.readPath(launchFile);
+    if (d) setDoc(d, d.content);
+    else setDoc(files.newDoc(), WELCOME, true);
+  } else if (label === "main") {
     const drafts = await files.listDrafts();
     if (drafts.length) {
       const d = drafts[0];
@@ -487,7 +687,7 @@ async function boot() {
       setDoc(files.newDoc(), WELCOME, true);
     }
   } else {
-    setDoc(files.newDoc(), ""); // a fresh blank window
+    setDoc(files.newDoc(), "");
   }
   editor.focus();
   showChrome();

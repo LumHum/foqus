@@ -1,58 +1,97 @@
-# foqus
+<p align="center">
+  <img src="src-tauri/icons/128x128@2x.png" width="92" alt="foqus" />
+</p>
 
-A calm, tactile, distraction-free Markdown writing app for macOS — built with **Rust + Tauri**.
-It tries to disappear: just type, and your words take the stage.
+<h1 align="center">foqus</h1>
 
-![foqus editor](screenshots/editor-paper.png)
+<p align="center"><em>a calm place to write.</em></p>
+
+<p align="center">
+  <a href="https://github.com/LumHum/foqus/releases/latest"><img src="https://img.shields.io/github/v/release/LumHum/foqus?style=flat&color=2f6bff&label=download" alt="latest release" /></a>
+  <img src="https://img.shields.io/badge/macOS%20·%20Windows%20·%20Linux-d99211?style=flat" alt="platforms" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-746f66?style=flat" alt="MIT license" /></a>
+</p>
+
+---
+
+Most writing apps want your attention. **foqus** wants to give it back.
+
+It's a distraction-free Markdown editor that tries, quietly, to disappear — so the
+only thing left on screen is the sentence you're shaping. The chrome fades while
+you type. Your words are saved the instant you write them. And every control you
+*do* touch has a little weight to it, because writing should feel good in the
+hands, not just look good on the page.
+
+<p align="center">
+  <img src="screenshots/editor-paper.png" width="760" alt="foqus editor" />
+</p>
+
+## Why foqus
+
+- **It gets out of the way.** No toolbars shouting, no panels jostling for room. Just a page, beautifully set, and a cursor.
+- **It's tactile.** Buttons press in, toggles spring, the page turns calm when you ask it to. Small things, done with care.
+- **Your words stay yours.** Everything is a plain `.md` file on your disk — no account, no lock-in, no telemetry. Open it in anything, forever.
+- **It never loses your work.** Autosave runs as you type; every save keeps a recoverable version you can return to.
 
 ## Features
 
-- **Live Markdown** — headings grow and **bold** / *italic* / `code` / links format as you type. The Markdown punctuation dims to a whisper and hides itself on every line except the one your cursor is on.
-- **Focus mode** — fade everything but the sentence (or paragraph) you're shaping. `⌘⇧F`
-- **Typewriter scrolling** — your current line holds at the center of the screen. `⌘⇧T`
-- **Themes & type** — four themes (Paper · Night · Sepia · Ink) and three typefaces (Mono · Serif · Sans), with adjustable text size, line spacing, and line width.
-- **Command palette** — every action, one keystroke away. `⌘K`
-- **Continuous autosave** — your words are saved the instant you write them. A new piece autosaves to a safe draft; you're only asked *where* to keep it when you close the window or open another file.
-- **Multi-window** — `⌘N` opens a new page in its own window, so you can work on two pieces at once.
-- **Your words, your files** — everything is a plain `.md` file on disk with atomic, crash-safe saves. No account, no lock-in, no telemetry.
-- **Quiet momentum** — an optional daily word-goal ring and a gentle, forgiving writing streak.
-- **Tactile feel** — pressable buttons, springy controls, and optional typing/UI sound (off by default). Respects "reduce motion".
+- **Live Markdown** — headings grow and **bold**/*italic*/`code`/links format as you write; the markup dims to a whisper and hides itself on lines you're not editing.
+- **Focus mode** — fade everything but the sentence (or paragraph) you're in. `⌘⇧F`
+- **Typewriter scrolling** — your current line holds at the center. `⌘⇧T`
+- **foqus notebook** — keep all your writing in one folder, organised into subfolders, browsable in a quiet sidebar.
+- **Version history** — a visual diff of every save, with one-click restore. `⌘⇧H`
+- **Themes & type** — four themes (Paper · Night · Sepia · Ink) and three typefaces, with adjustable size, line-spacing, and line-width.
+- **Command palette** — everything, one keystroke away. `⌘K`
+- **A new window per piece** — work on two things at once. `⌘N`
+- Optional typing & UI sound, a gentle daily word-goal, and a forgiving streak. Respects "reduce motion".
+
+## Download
+
+Grab the latest build from **[Releases »](https://github.com/LumHum/foqus/releases/latest)**
+
+| Platform | File |
+| --- | --- |
+| **macOS** | `foqus_x.y.z_universal.dmg` — open it and drag foqus to Applications |
+| **Windows** | `foqus_x.y.z_x64-setup.exe` — the installer walks you through it |
+| **Linux** | `.AppImage` (run it) or `.deb` (`sudo dpkg -i`) |
+
+> foqus is open-source and unsigned, so your OS may ask you to confirm the first
+> launch. On macOS: right-click → Open. On Windows: *More info → Run anyway*.
 
 ## Screenshots
 
-| Focus mode (Night) | Settings |
+| Focus mode · Night | Settings |
 | --- | --- |
 | ![Focus mode](screenshots/editor-night.png) | ![Settings](screenshots/settings.png) |
 
-| Command palette | Save your work |
+| Version history | Command palette |
 | --- | --- |
-| ![Command palette](screenshots/command-palette.png) | ![Save dialog](screenshots/save-dialog.png) |
+| ![Version history](screenshots/save-dialog.png) | ![Command palette](screenshots/command-palette.png) |
 
-## Keyboard
+## Built with
 
-| | |
-| --- | --- |
-| `⌘K` command palette · `⌘,` settings | `⌘N` new window · `⌘O` open · `⌘S` save · `⌘⇧S` save as |
-| `⌘⇧F` cycle focus mode | `⌘⇧T` typewriter · `⌘⇧L` cycle theme · `⌘W` close · `⌘Q` quit |
+[**Rust**](https://www.rust-lang.org) + [**Tauri**](https://tauri.app) for a small, fast, native shell ·
+[**CodeMirror 6**](https://codemirror.net) for the editor ·
+**TypeScript** + [**Vite**](https://vitejs.dev), no UI framework — just a little hand-rolled motion and a touch of Web Audio.
 
-## Tech stack
-
-- **Rust + [Tauri](https://tauri.app) v2** — a native webview shell (small footprint, fast launch). Rust handles file I/O, the native menu, and multi-window.
-- **TypeScript + [Vite](https://vitejs.dev)** — no UI framework; a small hand-rolled spring helper and a Web-Audio sound engine keep it lean.
-- **[CodeMirror 6](https://codemirror.net)** — the editor core (live Markdown, focus, and typewriter modes).
-
-## Getting started
+## Build from source
 
 You'll need **Rust** (via [rustup](https://rustup.rs)) and **Node 18+**.
 
 ```bash
 npm install
-npm run tauri dev      # run the app (hot-reloads)
-npm run tauri build    # build a release .app / .dmg
+npm run tauri dev      # run it (hot-reloads)
+npm run tauri build    # build installers for your platform
 ```
 
 ## Contributing
 
-foqus is young, and I'd genuinely love your input. Spotted a bug, want a feature, or have a
-thought on how something *feels*? **Open an issue or a pull request** — suggestions and
-contributions of any size are very welcome.
+foqus is young, and I'd genuinely love your input. Found a bug, have a feature in
+mind, or a thought on how something *feels*? **Open an issue or a pull request** —
+suggestions and contributions of any size are very welcome.[^1]
+
+## License
+
+[MIT](LICENSE) © Lum Humolli
+
+[^1]: If you make it all the way down here, you're exactly the kind of person foqus is for. Hi. 👋

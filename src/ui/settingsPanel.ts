@@ -11,6 +11,8 @@ import * as sound from "../lib/sound";
 export interface SettingsPanelOpts {
   get: () => Readonly<Settings>;
   onChange: (patch: Partial<Settings>) => void;
+  onPickNotebook: () => void | Promise<void>;
+  onMakeDefaultEditor: () => void | Promise<void>;
 }
 
 export class SettingsPanel {
@@ -44,6 +46,23 @@ export class SettingsPanel {
     this.el.addEventListener("pointerdown", (e) => {
       if (e.target === this.el) this.close();
     });
+
+    // A quiet little reward for the curious: tap the wordmark and it murmurs.
+    const tag = this.el.querySelector(".settings-tag") as HTMLElement;
+    const lines = [
+      "foqus — your words, your files.",
+      "foqus — written, not generated.",
+      "foqus — slow is smooth.",
+      "foqus — the page is yours.",
+      "foqus — keep going. ♥",
+    ];
+    let li = 0;
+    tag.addEventListener("click", () => {
+      li = (li + 1) % lines.length;
+      tag.textContent = lines[li];
+      sound.click();
+    });
+
     document.body.appendChild(this.el);
   }
 
@@ -61,6 +80,10 @@ export class SettingsPanel {
   }
   isOpen(): boolean {
     return this.open;
+  }
+  /** Re-render in place (e.g. after the notebook folder changes). */
+  refresh(): void {
+    if (this.open) this.render();
   }
 
   private render(): void {
@@ -94,6 +117,15 @@ export class SettingsPanel {
       section("Feel", [
         toggle("Typing & UI sound", s.sound, (v) => this.opts.onChange({ sound: v })),
         slider("Sound volume", s.soundVolume, 0, 1, 0.05, (v) => this.opts.onChange({ soundVolume: round2(v) })),
+      ]),
+      section("Files & history", [
+        toggle("Autosave", s.autosave, (v) => this.opts.onChange({ autosave: v })),
+        toggle("Version history", s.versionControl, (v) => this.opts.onChange({ versionControl: v })),
+        toggle("foqus notebook", s.notebookEnabled, (v) => this.opts.onChange({ notebookEnabled: v })),
+        ...(s.notebookEnabled
+          ? [folderRow("Notebook folder", s.notebookPath ? baseName(s.notebookPath) : "Not set", () => this.opts.onPickNotebook())]
+          : []),
+        actionRow("Default Markdown editor", "Make default", () => this.opts.onMakeDefaultEditor()),
       ]),
       section("Momentum", [
         stepper("Daily goal", s.dailyGoal, 0, 5000, 50, (v) => (v === 0 ? "off" : `${v} words`), (v) => this.opts.onChange({ dailyGoal: v })),
@@ -205,6 +237,41 @@ function slider(label: string, current: number, min: number, max: number, step: 
   input.value = String(current);
   input.addEventListener("input", () => onChange(parseFloat(input.value)));
   return row(label, input);
+}
+
+// A row with a small tactile button on the right (e.g. "Make default").
+function actionRow(label: string, btnLabel: string, onClick: () => void): HTMLElement {
+  const b = document.createElement("button");
+  b.className = "btn btn-ghost btn-small";
+  b.textContent = btnLabel;
+  b.addEventListener("click", () => {
+    sound.click();
+    onClick();
+  });
+  return row(label, b);
+}
+
+// A row showing a folder name with a "Change…" button.
+function folderRow(label: string, current: string, onClick: () => void): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "folder-row";
+  const name = document.createElement("span");
+  name.className = "folder-name";
+  name.textContent = current;
+  const b = document.createElement("button");
+  b.className = "btn btn-ghost btn-small";
+  b.textContent = "Change…";
+  b.addEventListener("click", () => {
+    sound.click();
+    onClick();
+  });
+  wrap.append(name, b);
+  return row(label, wrap);
+}
+
+function baseName(path: string): string {
+  const parts = path.split(/[\\/]/);
+  return parts[parts.length - 1] || path;
 }
 
 function round2(n: number): number {
