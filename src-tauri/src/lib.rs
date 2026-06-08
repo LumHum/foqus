@@ -14,9 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use tauri::menu::{AboutMetadata, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::{
-    AppHandle, Emitter, Manager, RunEvent, State, TitleBarStyle, WebviewUrl, WebviewWindowBuilder,
-};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 static WIN_SEQ: AtomicU32 = AtomicU32::new(1);
 static DRAFT_SEQ: AtomicU32 = AtomicU32::new(0);
@@ -427,7 +425,7 @@ fn create_doc_window(app: &AppHandle) {
         .min_inner_size(480.0, 420.0)
         .position(150.0 + off, 120.0 + off);
     #[cfg(target_os = "macos")]
-    let builder = builder.title_bar_style(TitleBarStyle::Overlay).hidden_title(true);
+    let builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
     #[cfg(not(target_os = "macos"))]
     let builder = builder.decorations(false);
     let _ = builder.build();
@@ -569,14 +567,16 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building foqus");
 
-    app.run(|handle, event| {
-        // Files opened from Finder / "Open With" arrive here on macOS.
-        if let RunEvent::Opened { urls } = event {
+    app.run(|_app_handle, _event| {
+        // Files opened from Finder / "Open With" arrive here — macOS only.
+        // (RunEvent::Opened doesn't exist on Windows/Linux, so it's cfg-gated.)
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Opened { urls } = _event {
             for url in urls {
                 if let Ok(p) = url.to_file_path() {
                     let path = p.to_string_lossy().to_string();
                     let mut delivered = false;
-                    for (_, w) in handle.webview_windows() {
+                    for (_, w) in _app_handle.webview_windows() {
                         if w.is_focused().unwrap_or(false) {
                             let _ = w.emit("open-file", path.clone());
                             delivered = true;
@@ -584,11 +584,11 @@ pub fn run() {
                         }
                     }
                     if !delivered {
-                        if let Some(state) = handle.try_state::<Launch>() {
+                        if let Some(state) = _app_handle.try_state::<Launch>() {
                             *state.0.lock().unwrap() = Some(path.clone());
                         }
-                        if handle.webview_windows().is_empty() {
-                            create_doc_window(handle);
+                        if _app_handle.webview_windows().is_empty() {
+                            create_doc_window(_app_handle);
                         }
                     }
                 }
