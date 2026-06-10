@@ -257,6 +257,66 @@ fn trash_path(path: String) -> Result<(), String> {
     trash::delete(&path).map_err(|e| format!("Couldn't move to Trash: {e}"))
 }
 
+// ── images ───────────────────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+struct ImportedImage {
+    src: String, // what to write in the doc (relative to the doc, or absolute)
+    abs: String, // absolute path, for immediate rendering
+}
+
+fn sanitize(s: &str) -> String {
+    let out: String = s
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == ' ' { c } else { '-' })
+        .collect();
+    let t = out.trim().to_string();
+    if t.is_empty() { "image".into() } else { t }
+}
+
+/// Where to keep images: an `assets/` folder beside the document (so they travel
+/// with it), or the app data dir for an untitled draft.
+fn asset_dir(app: &AppHandle, doc_path: &Option<String>) -> Result<(PathBuf, bool), String> {
+    if let Some(dp) = doc_path {
+        if let Some(parent) = Path::new(dp).parent() {
+            let dir = parent.join("assets");
+            fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            return Ok((dir, true));
+        }
+    }
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("images");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok((dir, false))
+}
+
+/// Copy an image file that the user dropped into the doc's asset folder.
+#[tauri::command]
+fn import_image(app: AppHandle, source: String, doc_path: Option<String>) -> Result<ImportedImage, String> {
+    let src_p = PathBuf::from(&source);
+    let stem = src_p.file_stem().and_then(|s| s.to_str()).unwrap_or("image");
+    let ext = src_p.extension().and_then(|s| s.to_str()).unwrap_or("png");
+    let (dir, relative) = asset_dir(&app, &doc_path)?;
+    let dest = unique_path(&dir, &sanitize(stem), Some(ext));
+    fs::copy(&src_p, &dest).map_err(|e| format!("Couldn't copy image: {e}"))?;
+    let abs = dest.to_string_lossy().to_string();
+    let file = dest.file_name().and_then(|s| s.to_str()).unwrap_or("image").to_string();
+    let src = if relative { format!("assets/{file}") } else { abs.clone() };
+    Ok(ImportedImage { src, abs })
+}
+
+/// Save pasted image bytes (clipboard) into the doc's asset folder.
+#[tauri::command]
+fn save_image_bytes(app: AppHandle, bytes: Vec<u8>, ext: Option<String>, doc_path: Option<String>) -> Result<ImportedImage, String> {
+    let (dir, relative) = asset_dir(&app, &doc_path)?;
+    let e = ext.filter(|s| !s.is_empty()).unwrap_or_else(|| "png".into());
+    let dest = unique_path(&dir, "pasted", Some(&e));
+    fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
+    let abs = dest.to_string_lossy().to_string();
+    let file = dest.file_name().and_then(|s| s.to_str()).unwrap_or("image").to_string();
+    let src = if relative { format!("assets/{file}") } else { abs.clone() };
+    Ok(ImportedImage { src, abs })
+}
+
 // ── version control (recoverable snapshots on save) ──────────────────────────
 
 fn history_dir(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
@@ -472,6 +532,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let h = app.handle();
 
@@ -556,6 +618,8 @@ pub fn run() {
             create_folder,
             rename_path,
             trash_path,
+            import_image,
+            save_image_bytes,
             save_version,
             list_versions,
             read_version,

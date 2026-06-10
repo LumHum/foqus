@@ -12,7 +12,10 @@
 import "./styles.css";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { listen } from "@tauri-apps/api/event";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { importImage, saveImageBytes, resolveImageUrl, buildImgTag, isImageFile, IMAGE_EXTS } from "./lib/images";
 import { createEditor, type EditorAPI } from "./editor";
 import * as settings from "./lib/settings";
 import type { FocusMode, FontName, Settings, ThemeName } from "./lib/settings";
@@ -31,6 +34,8 @@ import { HistoryPanel } from "./ui/historyPanel";
 import { celebrate } from "./ui/celebrate";
 import { confirmSave } from "./ui/confirmDialog";
 import { runOnboarding } from "./ui/onboarding";
+import { checkForUpdate, installUpdate } from "./lib/updater";
+import { UpdateBanner } from "./ui/updateBanner";
 
 const WELCOME = `# Welcome to foqus
 
@@ -110,7 +115,41 @@ async function boot() {
       typewriter: () => settings.get().typewriter,
     },
     onChange: (text) => onDocChange(text),
+    resolveImageSrc: (src) => resolveImageUrl(src, doc.path),
   });
+
+  // ── images: paste from clipboard ──
+  editor.view.contentDOM.addEventListener("paste", async (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const it of items) {
+      if (it.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = it.getAsFile();
+        if (!file) continue;
+        const buf = new Uint8Array(await file.arrayBuffer());
+        const imp = await saveImageBytes(Array.from(buf), it.type.split("/")[1] || "png", doc.path);
+        if (imp) editor.insertImage(buildImgTag(imp.src, "pasted image", "center"));
+        return;
+      }
+    }
+  });
+
+  async function insertImageFromDisk() {
+    if (!isTauri()) {
+      flashStatus("Drag an image in, or use the desktop app");
+      return;
+    }
+    const sel = await openFileDialog({ multiple: true, filters: [{ name: "Images", extensions: IMAGE_EXTS }] });
+    const paths = Array.isArray(sel) ? sel : sel ? [sel] : [];
+    for (const p of paths) {
+      const imp = await importImage(p as string, doc.path);
+      if (imp) editor.insertImage(buildImgTag(imp.src, fileLabel(p as string), "center"));
+    }
+  }
+  function fileLabel(p: string): string {
+    return (p.split(/[\\/]/).pop() ?? "image").replace(/\.[^.]+$/, "");
+  }
 
   const sidebar = new Sidebar({
     getNotebookPath: () => (settings.get().notebookEnabled ? settings.get().notebookPath : null),
@@ -140,6 +179,20 @@ async function boot() {
     getCurrentContent: () => editor.getText(),
     onRestore: (content) => void restoreVersion(content),
   });
+  const updateBanner = new UpdateBanner();
+
+  async function runUpdateCheck(manual = false) {
+    if (!isTauri()) {
+      if (manual) flashStatus("Updates aren't available in the browser");
+      return;
+    }
+    const update = await checkForUpdate();
+    if (update) {
+      updateBanner.show(update.version, () => void installUpdate(update, (p) => updateBanner.setProgress(p)));
+    } else if (manual) {
+      flashStatus("foqus is up to date");
+    }
+  }
 
   // ── theme / typography ──
   function applyTheme(name: ThemeName) {
@@ -533,10 +586,12 @@ async function boot() {
       { id: "open", title: "Open…", shortcut: "⌘O", run: () => void openFile() },
       { id: "save", title: "Save", shortcut: "⌘S", run: () => void saveExplicit() },
       { id: "saveas", title: "Save As…", shortcut: "⌘⇧S", run: () => void saveAsExplicit() },
+      { id: "image", title: "Insert image…", keywords: "picture photo drag drop", run: () => void insertImageFromDisk() },
       { id: "history", title: "Version history…", shortcut: "⌘⇧H", keywords: "versions revert diff", run: () => void history.show() },
       { id: "notebook", title: `foqus notebook: ${cur.notebookEnabled ? "On" : "Off"}`, keywords: "vault folder", run: () => applyPatch({ notebookEnabled: !cur.notebookEnabled }) },
       { id: "autosave", title: `Autosave: ${cur.autosave ? "On" : "Off"}`, keywords: "save", run: () => applyPatch({ autosave: !cur.autosave }) },
       { id: "default", title: "Make foqus the default Markdown editor", keywords: "open with", run: () => void makeDefaultEditor() },
+      { id: "update", title: "Check for updates…", keywords: "upgrade version new", run: () => void runUpdateCheck(true) },
       { id: "focus-off", title: "Focus: Off", keywords: "focus mode", run: () => applyPatch({ focusMode: "off" }) },
       { id: "focus-sentence", title: "Focus: Sentence", keywords: "focus mode", run: () => applyPatch({ focusMode: "sentence" }) },
       { id: "focus-paragraph", title: "Focus: Paragraph", keywords: "focus mode", run: () => applyPatch({ focusMode: "paragraph" }) },
@@ -633,6 +688,24 @@ async function boot() {
     listen<string>("open-file", (e) => {
       if (e.payload) void openPath(e.payload);
     });
+
+    // Drop image files anywhere on the page — they land where you dropped them.
+    getCurrentWebview().onDragDropEvent(async (e) => {
+      if (e.payload.type !== "drop") return;
+      const imgs = e.payload.paths.filter(isImageFile);
+      if (!imgs.length) return;
+      const dpr = window.devicePixelRatio || 1;
+      let at =
+        editor.view.posAtCoords({ x: e.payload.position.x / dpr, y: e.payload.position.y / dpr }) ??
+        editor.view.state.selection.main.head;
+      for (const p of imgs) {
+        const imp = await importImage(p, doc.path);
+        if (imp) {
+          editor.insertImage(buildImgTag(imp.src, fileLabel(p), "center"), at);
+          at = editor.view.state.selection.main.head;
+        }
+      }
+    });
   }
 
   // ── initial state ──
@@ -691,6 +764,11 @@ async function boot() {
   }
   editor.focus();
   showChrome();
+
+  // Quietly check for an update a few seconds after launch (main window only).
+  if (isTauri() && label === "main" && settings.get().autoUpdate) {
+    window.setTimeout(() => void runUpdateCheck(), 3000);
+  }
 }
 
 boot();

@@ -1266,6 +1266,231 @@ button {
   transform: scale(1.25);
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Update banner (calm, peripheral — slides up from the bottom)
+   ───────────────────────────────────────────────────────────────────────── */
+.update-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  z-index: 1150;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 18px;
+  background: var(--surface-raise);
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--hairline);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 140%);
+  transition: transform 0.42s var(--ease-spring), opacity 0.3s var(--ease-out);
+  overflow: hidden;
+}
+.update-banner.is-open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+.update-bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 100%;
+  background: var(--accent);
+  transform-origin: left;
+  transform: scaleX(0);
+  transition: transform 0.2s linear;
+}
+.update-label {
+  font: 500 13.5px var(--ui-font);
+  color: var(--fg);
+}
+.update-dismiss {
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  font: 500 12.5px var(--ui-font);
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 8px;
+  transition: color 0.15s;
+}
+.update-dismiss:hover {
+  color: var(--muted);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Images (block figures with align + edge-resize)
+   ───────────────────────────────────────────────────────────────────────── */
+.cm-image {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0.7em 0;
+}
+.cm-image--center {
+  margin-left: auto;
+  margin-right: auto;
+}
+.cm-image--left {
+  margin-left: 0;
+  margin-right: auto;
+}
+.cm-image--right {
+  margin-left: auto;
+  margin-right: 0;
+}
+.cm-image img {
+  display: block;
+  max-width: 100%;
+  border-radius: 10px;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.13);
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.cm-image.is-broken img {
+  display: none;
+}
+.cm-image.is-broken::after {
+  content: "image not found";
+  display: block;
+  padding: 26px 32px;
+  text-align: center;
+  color: var(--faint);
+  font: 500 13px var(--ui-font);
+  background: var(--ctrl-track);
+  border-radius: 10px;
+}
+.cm-image-bar {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg) 68%, transparent);
+  backdrop-filter: blur(8px) saturate(1.2);
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22), 0 0 0 1px var(--hairline);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(-4px);
+  transition: opacity 0.15s, transform 0.22s var(--ease-spring);
+}
+.cm-image:hover .cm-image-bar {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+.cm-image-seg {
+  display: flex;
+  gap: 1px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--ctrl-track);
+}
+.cm-image-segbtn {
+  width: 26px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.15s, color 0.15s, transform var(--dur-release) var(--ease-spring);
+}
+.cm-image-segbtn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+}
+.cm-image-segbtn:hover {
+  color: var(--fg);
+}
+.cm-image-segbtn:active {
+  transform: scale(0.9);
+  transition: transform var(--dur-press) ease;
+}
+.cm-image-segbtn.is-active {
+  background: var(--bg);
+  color: var(--accent);
+}
+.cm-image-del {
+  width: 26px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.cm-image-del svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+.cm-image-del:hover {
+  background: color-mix(in srgb, #e5484d 16%, transparent);
+  color: #e5484d;
+}
+.cm-image-handle {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 46px;
+  max-height: 56%;
+  border-radius: 6px;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  cursor: ew-resize;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 0.15s;
+  touch-action: none;
+}
+.cm-image-handle--left {
+  left: -5px;
+}
+.cm-image-handle--right {
+  right: -5px;
+}
+.cm-image:hover .cm-image-handle,
+.cm-image.is-resizing .cm-image-handle {
+  opacity: 1;
+}
+.cm-image-pill {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fg) 80%, var(--bg));
+  color: var(--bg);
+  font: 600 11.5px var(--ui-font);
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.cm-image-pill.is-on {
+  opacity: 1;
+}
+
 /* ── scrollbars ─────────────────────────────────────────────────────────── */
 .cm-scroller::-webkit-scrollbar,
 .settings-body::-webkit-scrollbar,

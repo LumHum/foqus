@@ -126,6 +126,7 @@ export class SettingsPanel {
           ? [folderRow("Notebook folder", s.notebookPath ? baseName(s.notebookPath) : "Not set", () => this.opts.onPickNotebook())]
           : []),
         actionRow("Default Markdown editor", "Make default", () => this.opts.onMakeDefaultEditor()),
+        toggle("Automatic updates", s.autoUpdate, (v) => this.opts.onChange({ autoUpdate: v })),
       ]),
       section("Momentum", [
         stepper("Daily goal", s.dailyGoal, 0, 5000, 50, (v) => (v === 0 ? "off" : `${v} words`), (v) => this.opts.onChange({ dailyGoal: v })),

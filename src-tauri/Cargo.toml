@@ -1,6 +1,6 @@
 [package]
 name = "foqus"
-version = "0.1.0"
+version = "0.2.0"
 description = "foqus writer — a tactile, joyful, distraction-free writing app"
 authors = ["foqus"]
 edition = "2021"
@@ -18,7 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api"] }
+tauri = { version = "2", features = ["macos-private-api", "protocol-asset"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-store = "2"
@@ -26,6 +26,8 @@ tauri-plugin-window-state = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 trash = "5"
+tauri-plugin-updater = "2.10.1"
+tauri-plugin-process = "2.3.1"
 
 # Setting the default Markdown handler on macOS goes through LaunchServices.
 [target.'cfg(target_os = "macos")'.dependencies]

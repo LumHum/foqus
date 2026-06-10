@@ -16,6 +16,7 @@ import { focusMode, type FocusMode } from "./focus";
 import { typewriterPadding, typewriterPaddingTheme, typewriterScroll } from "./typewriter";
 import { keySound } from "./keysound";
 import { foqusHighlighting, foqusTheme } from "./theme";
+import { imageBlocks } from "./images";
 
 export interface EditorAccessors {
   focus: () => FocusMode;
@@ -29,6 +30,7 @@ export interface CreateEditorOpts {
   placeholder?: string;
   accessors: EditorAccessors;
   onChange: (text: string) => void;
+  resolveImageSrc: (src: string) => string;
 }
 
 export interface EditorAPI {
@@ -41,6 +43,7 @@ export interface EditorAPI {
   focus: () => void;
   wrapSelection: (before: string, after?: string) => void;
   toggleHeading: (level: number) => void;
+  insertImage: (tag: string, pos?: number) => void;
 }
 
 export function createEditor(opts: CreateEditorOpts): EditorAPI {
@@ -57,6 +60,7 @@ export function createEditor(opts: CreateEditorOpts): EditorAPI {
         markdown({ base: markdownLanguage, codeLanguages: languages, addKeymap: true }),
         foqusHighlighting,
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+        imageBlocks({ resolveSrc: opts.resolveImageSrc }),
         liveComp.of(liveMarkdown(opts.accessors.live)),
         focusComp.of(focusMode(opts.accessors.focus)),
         typewriterPadding.of(opts.accessors.typewriter() ? typewriterPaddingTheme : []),
@@ -109,6 +113,14 @@ export function createEditor(opts: CreateEditorOpts): EditorAPI {
       view.dispatch({
         changes: { from: line.from, to: line.to, insert: already ? stripped : prefix + stripped },
       });
+      view.focus();
+    },
+    insertImage: (tag: string, pos?: number) => {
+      const p = pos ?? view.state.selection.main.head;
+      const line = view.state.doc.lineAt(p);
+      const needLeadingNL = p > line.from && view.state.doc.sliceString(line.from, p).trim() !== "";
+      const insert = `${needLeadingNL ? "\n" : ""}${tag}\n`;
+      view.dispatch({ changes: { from: p, insert }, selection: { anchor: p + insert.length } });
       view.focus();
     },
   };

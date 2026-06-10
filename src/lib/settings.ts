@@ -32,6 +32,8 @@ export interface Settings {
   sidebarOpen: boolean;
   // version control — keep recoverable snapshots on save
   versionControl: boolean;
+  // automatically check for new versions
+  autoUpdate: boolean;
   // first-run onboarding seen?
   onboarded: boolean;
   // streak tracking
@@ -62,6 +64,7 @@ export const DEFAULTS: Settings = {
   notebookPath: null,
   sidebarOpen: true,
   versionControl: true,
+  autoUpdate: true,
   onboarded: false,
   streak: 0,
   longestStreak: 0,
